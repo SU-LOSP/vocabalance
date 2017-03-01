@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # coding: utf-8
 
-from bs4 import BeautifulSoup
+from xml.dom.minidom import parse
+from xml.dom import Node
 import re
+import os
 from collections import Counter
 from math import log, exp
 
@@ -12,51 +14,45 @@ common_words = ("the all of that and he hath from for this will are is was "
                 "in with our we not me be you shall thy it what do thee him "
                 "they on no make your by us upon am let then yet here some if "
                 "how at give well where them an thus were say too nor than"
-                ).split()
+               ).split()
 
 
-def is_speech_start(tag):
-    element_name = tag.attrs.get("name")
-    return tag.name == "a" and False if not element_name else element_name.startswith("speech")
-
-
-class Speech:
-    def __init__(self, start):
-        self.speaker = start.text
-        self.speech = start.findNextSibling("blockquote").text
-
-    def __repr__(self):
-        return self.speaker + "\n" + self.speech + "-------\n\n"
-
-    def tokens(self):
-        return tokenise(self.speech)
-
-    def interesting_tokens(self):
-        return [tok.lower().strip("\n ,!?.–;:\t-") for tok in self.tokens() if tok.strip("\n ,!?.–;:\t-")]
-
-
-def get_speeches(soup):
-    return [Speech(start) for start in soup.find_all(is_speech_start)]
-
-
-token_delim_re = re.compile('([\n ,!?.–;:\t-]+|--)')
-def tokenise(string):
-    return [tok.strip("' \t\n") for tok in token_delim_re.split(string) if tok]
+def isInSpeech(tag):
+    cur = tag
+    while cur.parentNode:
+        cur = cur.parentNode
+        if cur.nodeType != Node.ELEMENT_NODE:
+            return True
+        if cur.tagName == "stage" or cur.tagName == "speaker":
+            return False
 
 
 def main():
     import sys
-    play = sys.argv[1]
-    soup = BeautifulSoup(open("mit-plays/" + play + ".html", "r").read(), "html5lib")
+    input_play = sys.argv[1]
+    output_dir = sys.argv[2]
+    os.makedirs(output_dir)
+    xml = parse(input_play)
 
-    speeches = get_speeches(soup)
-
+    speaker_speeches = {}
     speaker_words = {}
-    for speech in speeches:
-        speaker = speech.speaker
-        if speaker not in speaker_words:
-            speaker_words[speaker] = Counter()
-        speaker_words[speaker].update(speech.interesting_tokens())
+    for speech in xml.getElementsByTagName("sp"):
+        who = speech.getAttribute("who")
+        speaker_speeches.setdefault(who, []).append(speech)
+        if not who:
+            print("Speech without owner!")
+            print(speech)
+            print("\n\n\n")
+            continue
+        words_counter = speaker_words.setdefault(who, Counter())
+        for word in speech.getElementsByTagName("w"):
+            if not isInSpeech(word):
+                continue
+            if not word.firstChild:
+                print("Word without child:", word.toxml())
+                print("in speech: ", speech.toxml())
+                print("\n\n\n")
+            words_counter.update([(word.firstChild.nodeValue or "").lower()])
 
     all_words = Counter()
     for counter in speaker_words.values():
@@ -67,21 +63,12 @@ def main():
 
     total_words = sum(all_words.values())
 
-    with open("reports/"+play+"-amounts.csv", "w") as csv:
+    os.chdir(output_dir)
+
+    with open("character-stats.csv", "w") as csv:
         print("Character", "Number of words spoken", "Number of speeches", sep=",", file=csv)
         for speaker, wordcount in speaker_counts.items():
-            print(speaker, wordcount, len([speech for speech in speeches if speech.speaker == speaker]), sep=",", file=csv)
-            sorted(speaker_counts.items(), key=lambda x: x[1])
-
-    speaker_speeches = Counter()
-    for speech in speeches:
-        speaker_speeches[speech.speaker] += 1
-
-    sorted(speaker_speeches.items(), key=lambda x: x[1])
-
-    with open("reports/" + play + "-numbers.csv", "w") as csv:
-        for speaker in speaker_speeches:
-            print(speaker, speaker_speeches[speaker], speaker_counts[speaker], sep=",", file=csv)
+            print(speaker, wordcount, len(speaker_speeches[speaker]), sep=",", file=csv)
 
     def stat(word, speaker):
         word_likelihood = (all_words[word]) / total_words
@@ -98,7 +85,7 @@ def main():
                            and word not in common_words))
 
     threshold = 11
-    with open("reports/" + play + ".csv", "w") as csv, open("reports/" + play + ".txt", "w") as txt:
+    with open("speaker-words.csv", "w") as csv, open("significance-graph.txt", "w") as txt:
         print("Character", "Word", "Count", "Significance", sep=",", file=csv)
         for speaker, word, value in sorted(output, key=lambda x: (x[0], x[2]), reverse=True):
             value *= 10
