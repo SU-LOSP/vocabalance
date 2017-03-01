@@ -8,6 +8,8 @@ import os
 from collections import Counter
 from math import log, exp
 
+from nltk.stem.snowball import EnglishStemmer
+
 
 common_words = ("the all of that and he hath from for this will are is was "
                 "which thou have my i when so but his her unto as a their to "
@@ -34,6 +36,8 @@ def main():
     os.makedirs(output_dir)
     xml = parse(input_play)
 
+    stemmer = EnglishStemmer()
+
     speaker_speeches = {}
     speaker_words = {}
     for speech in xml.getElementsByTagName("sp"):
@@ -41,7 +45,7 @@ def main():
         speaker_speeches.setdefault(who, []).append(speech)
         if not who:
             print("Speech without owner!")
-            print(speech)
+            print(speech.toxml())
             print("\n\n\n")
             continue
         words_counter = speaker_words.setdefault(who, Counter())
@@ -52,7 +56,9 @@ def main():
                 print("Word without child:", word.toxml())
                 print("in speech: ", speech.toxml())
                 print("\n\n\n")
-            words_counter.update([(word.firstChild.nodeValue or "").lower()])
+            wordStr = word.firstChild.nodeValue or ""
+            wordStr = stemmer.stem(wordStr)
+            words_counter.update([wordStr])
 
     all_words = Counter()
     for counter in speaker_words.values():
